@@ -164,7 +164,8 @@ export default function (pi: ExtensionAPI) {
 
     if (result) {
       // Transmit-only: change a=T (transmit+display) to a=t (transmit, no display).
-      // Reusing the same image ID replaces the stored data without deleting.
+      // Re-transmitting with the same ID deletes old data + placements (per Kitty spec).
+      // The placement command below immediately re-creates the placement in the same render.
       const transmitSeq = result.sequence.replace("a=T", "a=t");
       // Lightweight placement command with fixed placement ID.
       // Kitty replaces existing placement p=1, so no delete needed.
