@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { type TUI, getCapabilities, getImageDimensions, renderImage, allocateImageId, deleteKittyImage } from "@mariozechner/pi-tui";
+import { type TUI, getCapabilities, getImageDimensions, renderImage, allocateImageId, deleteKittyImage, visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,6 +118,7 @@ export default function (pi: ExtensionAPI) {
   let pendingTransmit: string | null = null;
   let replotSequence: string | null = null;
   let lastShownBase64: string | null = null;
+  let ctxRef: any = null; // captured ExtensionContext for stats access
   const emoteImageId = allocateImageId();
 
   // State machine
@@ -470,6 +471,67 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  // --- Token formatting helper ---
+
+  function formatTokens(count: number): string {
+    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+    if (count >= 10_000) return `${Math.round(count / 1000)}k`;
+    if (count >= 1_000) return `${(count / 1000).toFixed(1)}k`;
+    return count.toString();
+  }
+
+  // --- Build info panel lines ---
+
+  function buildInfoLines(width: number, theme: any): string[] {
+    const lines: string[] = [];
+    if (!ctxRef) return lines;
+
+    // Model name + thinking level
+    const model = ctxRef.model;
+    let modelStr = model?.name ?? "no model";
+    const thinkingLevel = pi.getThinkingLevel?.() ?? "high";
+    if (model?.reasoning) {
+      modelStr += ` • ${thinkingLevel}`;
+    }
+    lines.push(theme.bold(modelStr));
+
+    // Context usage
+    const usage = ctxRef.getContextUsage?.();
+    if (usage) {
+      const pct = usage.percent !== null ? `${usage.percent.toFixed(1)}%` : "?";
+      const tokens = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
+      const window = formatTokens(usage.contextWindow);
+      lines.push(`Context: ${tokens}/${window} (${pct})`);
+    }
+
+    // Token stats from session entries
+    let totalInput = 0;
+    let totalOutput = 0;
+    let totalCost = 0;
+    try {
+      for (const entry of ctxRef.sessionManager.getEntries()) {
+        if (entry.type === "message" && entry.message.role === "assistant") {
+          totalInput += entry.message.usage?.input ?? 0;
+          totalOutput += entry.message.usage?.output ?? 0;
+          totalCost += entry.message.usage?.cost?.total ?? 0;
+        }
+      }
+    } catch (_) { /* ignore if not available */ }
+
+    if (totalInput || totalOutput) {
+      lines.push(`↑${formatTokens(totalInput)} ↓${formatTokens(totalOutput)}`);
+    }
+
+    lines.push(`$${totalCost.toFixed(3)}`);
+
+    // Truncate lines to fit available width
+    const infoWidth = width - config.size - 5; // 5 = " " (left pad) + " │ " (separator)
+    return lines.map(l => {
+      if (visibleWidth(l) > infoWidth) return truncateToWidth(l, infoWidth, "…");
+      return l;
+    });
+  }
+
   // --- Events ---
 
   pi.on("session_start", async (_event, ctx) => {
@@ -480,9 +542,10 @@ export default function (pi: ExtensionAPI) {
     if (!caps.images) return;
 
     clearAllTimers();
+    ctxRef = ctx;
 
-    // Create widget above the editor (JRPG-style portrait above dialogue)
-    ctx.ui.setWidget("emote", (tui, _theme) => {
+    // Create widget above the editor (JRPG-style portrait beside stats panel)
+    ctx.ui.setWidget("emote", (tui, theme) => {
       tuiRef = tui;
       return {
         render(width: number): string[] {
@@ -490,26 +553,49 @@ export default function (pi: ExtensionAPI) {
           if (width < config.hideBelow) return [];
           if (imageRows === 0) return [];
 
+          // Use the same border color as the prompt bar (thinking-level aware)
+          const thinkingLevel = pi.getThinkingLevel?.() ?? "high";
+          const borderColor = (theme as any).getThinkingBorderColor?.(thinkingLevel)
+            ?? ((s: string) => theme.fg("border", s));
+          const border = borderColor("─".repeat(width));
+          const sep = borderColor("│");
+          const leftMargin = " "; // left padding for image
+          const avatarPad = " ".repeat(config.size); // image area placeholder
+          const infoLines = buildInfoLines(width, theme);
+
           const lines: string[] = [];
-          if (pendingTransmit) {
-            // Frame changed: upload new data + place
-            lines.push(pendingTransmit + (replotSequence ?? ""));
-            pendingTransmit = null;
-          } else if (replotSequence) {
-            // No frame change: lightweight re-place at current position
-            lines.push(replotSequence);
-          } else {
-            lines.push("");
+
+          // Top border
+          lines.push(border);
+
+          // Image rows with info panel
+          for (let i = 0; i < imageRows; i++) {
+            let line = "";
+            if (i === 0) {
+              // First row: left margin + Kitty placement (image starts at col 1)
+              line = leftMargin;
+              if (pendingTransmit) {
+                line += pendingTransmit + (replotSequence ?? "");
+                pendingTransmit = null;
+              } else if (replotSequence) {
+                line += replotSequence;
+              }
+              line += `${avatarPad} ${sep} ${infoLines[i] ?? ""}`;
+            } else {
+              // Subsequent rows: left margin + avatar space + separator + info
+              line = `${leftMargin}${avatarPad} ${sep} ${infoLines[i] ?? ""}`;
+            }
+            lines.push(line);
           }
-          // Pad remaining rows so TUI reserves space for the image
-          for (let i = 1; i < imageRows; i++) {
-            lines.push("");
-          }
+
+          // No bottom border — the editor's own top border serves as separator
+
           return lines;
         },
         invalidate() {},
         dispose() {
           tuiRef = null;
+          ctxRef = null;
         },
       };
     }, { placement: "aboveEditor" });
@@ -529,6 +615,7 @@ export default function (pi: ExtensionAPI) {
       widgetActive = false;
     }
     tuiRef = null;
+    ctxRef = null;
     pendingTransmit = null;
     replotSequence = null;
   });
