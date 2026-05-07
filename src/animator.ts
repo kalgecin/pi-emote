@@ -28,8 +28,7 @@ function randomInRange(min: number, max: number): number {
 
 export class Animator {
   // Image rendering state (read by widget)
-  pendingTransmit: string | null = null;
-  replotSequence: string | null = null;
+  imageSequence: string | null = null;
   imageRows = 0;
   readonly imageId: number;
 
@@ -99,20 +98,16 @@ export class Animator {
     const result = renderImage(base64, dimensions, {
       maxWidthCells: this.config.size,
       imageId: this.imageId,
+      moveCursor: false,
     });
 
     log(`showImage: result=${result !== null && result !== undefined}, tuiRef=${this.tuiRef !== null}, dims=${dimensions.widthPx}x${dimensions.heightPx}`);
 
     if (result) {
-      const transmitSeq = result.sequence.replace("a=T", "a=t");
-      const placeSeq = `\x1b_Ga=p,i=${this.imageId},p=1,c=${this.config.size},r=${result.rows},C=1,q=2\x1b\\`;
-
-      this.pendingTransmit = transmitSeq;
-      this.replotSequence = placeSeq;
+      this.imageSequence = result.sequence;
       this.imageRows = result.rows;
     } else {
-      this.pendingTransmit = null;
-      this.replotSequence = null;
+      this.imageSequence = null;
       this.imageRows = 0;
     }
     this.tuiRef?.requestRender();
@@ -124,8 +119,7 @@ export class Animator {
 
   deleteImage() {
     process.stdout.write(deleteKittyImage(this.imageId));
-    this.pendingTransmit = null;
-    this.replotSequence = null;
+    this.imageSequence = null;
   }
 
   // --- Frame access ---

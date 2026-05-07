@@ -83,7 +83,7 @@ export function createWidgetFactory(deps: WidgetDeps) {
           return [];
         }
 
-        log(`render: imageRows=${animator.imageRows}, pendingTransmit=${animator.pendingTransmit !== null}, replotSequence=${animator.replotSequence !== null}, set="${deps.getCurrentEmoteSet()}"`);
+        log(`render: imageRows=${animator.imageRows}, imageSequence=${animator.imageSequence !== null}, set="${deps.getCurrentEmoteSet()}"`);
 
         const thinkingLevel = deps.pi.getThinkingLevel?.() ?? "high";
         const borderColor = (theme as any).getThinkingBorderColor?.(thinkingLevel)
@@ -101,11 +101,8 @@ export function createWidgetFactory(deps: WidgetDeps) {
           let line = "";
           if (i === 0) {
             line = leftMargin;
-            if (animator.pendingTransmit) {
-              line += animator.pendingTransmit + (animator.replotSequence ?? "");
-              animator.pendingTransmit = null;
-            } else if (animator.replotSequence) {
-              line += animator.replotSequence;
+            if (animator.imageSequence) {
+              line += animator.imageSequence;
             }
             line += `${avatarPad} ${sep} ${infoLines[i] ?? ""}`;
           } else {
