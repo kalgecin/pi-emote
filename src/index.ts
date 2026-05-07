@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { type TUI, getCapabilities, getImageDimensions, renderImage, allocateImageId, deleteKittyImage, visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
-import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, appendFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +10,7 @@ type EmoteState = "hi" | "idle" | "think" | "talk" | "read" | "write" | "tool" |
 
 interface Config {
   enabled: boolean;
+  debug: boolean;
   size: number;
   readingSpeed: number;
   hideBelow: number;
@@ -17,6 +18,12 @@ interface Config {
   blinkInterval: [number, number];
   talkTickMs: number;
   cycleMs: number;
+  emotes: EmoteMapping[];
+}
+
+interface EmoteMapping {
+  model: string;
+  "emote-set": string;
 }
 
 interface EmotesConfig {
@@ -30,15 +37,45 @@ interface FrameSet {
   base64Cache: Map<string, string>;
 }
 
-// --- Helpers ---
+const LOG_FILE = join(dirname(fileURLToPath(import.meta.url)), "..", "debug.log");
+let debugEnabled = false;
+function log(msg: string) {
+  if (!debugEnabled) return;
+  appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
+}
 
-function loadConfig(extDir: string): Config {
-  const configPath = join(extDir, "config.json");
-  if (existsSync(configPath)) {
-    return JSON.parse(readFileSync(configPath, "utf-8"));
+function deepMerge(target: any, source: any): any {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (
+      source[key] !== null &&
+      typeof source[key] === "object" &&
+      !Array.isArray(source[key]) &&
+      target[key] !== null &&
+      typeof target[key] === "object" &&
+      !Array.isArray(target[key])
+    ) {
+      result[key] = deepMerge(target[key], source[key]);
+    } else {
+      result[key] = source[key];
+    }
   }
-  return {
+  return result;
+}
+
+function loadJsonFile(path: string): any | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function loadLayeredConfig(extDir: string, cwd: string): Config {
+  const defaults: Config = {
     enabled: true,
+    debug: false,
     size: 8,
     readingSpeed: 4,
     hideBelow: 80,
@@ -46,24 +83,104 @@ function loadConfig(extDir: string): Config {
     blinkInterval: [3000, 6000],
     talkTickMs: 120,
     cycleMs: 500,
+    emotes: [{ model: "*", "emote-set": "default" }],
   };
+
+  // Layer 1: Extension config (lowest priority)
+  const extConfig = loadJsonFile(join(extDir, "config.json"));
+
+  // Layer 2: User global config
+  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const userConfig = loadJsonFile(join(homeDir, ".pi", "agent", "extensions", "pi-emote", "config.json"));
+
+  // Layer 3: Project config (highest priority)
+  const projectConfig = loadJsonFile(join(cwd, ".pi", "extensions", "pi-emote", "config.json"));
+
+  // Deep merge in priority order
+  let merged = defaults;
+  if (extConfig) merged = deepMerge(merged, extConfig);
+  if (userConfig) merged = deepMerge(merged, userConfig);
+  if (projectConfig) merged = deepMerge(merged, projectConfig);
+
+  // "emotes" array uses replace semantics — highest priority layer wins
+  if (projectConfig?.emotes) {
+    merged.emotes = projectConfig.emotes;
+  } else if (userConfig?.emotes) {
+    merged.emotes = userConfig.emotes;
+  } else if (extConfig?.emotes) {
+    merged.emotes = extConfig.emotes;
+  }
+
+  return merged;
 }
 
-function loadEmotesConfig(extDir: string): EmotesConfig {
-  const emotesConfigPath = join(extDir, "emotes", "emotes.json");
-  if (existsSync(emotesConfigPath)) {
-    return JSON.parse(readFileSync(emotesConfigPath, "utf-8"));
+// --- Emote Set Resolution ---
+
+function globToRegex(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, "i");
+}
+
+function resolveEmoteSet(modelId: string, emotes: EmoteMapping[]): string {
+  let matched: string | null = null;
+  let matchCount = 0;
+
+  for (const entry of emotes) {
+    const regex = globToRegex(entry.model);
+    if (regex.test(modelId)) {
+      // Skip catch-all for warning purposes
+      if (entry.model !== "*") matchCount++;
+      matched = entry["emote-set"];
+    }
+  }
+
+  if (matchCount > 1) {
+    console.error(`[pi-emote] Warning: multiple emote patterns matched model "${modelId}", using last match.`);
+  }
+
+  return matched ?? "default";
+}
+
+// --- Emote Set Loading ---
+
+function findEmoteSetDir(setName: string, extDir: string, cwd: string): string {
+  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+
+  // Priority: project → user → extension → fallback to default
+  const projectDir = join(cwd, ".pi", "extensions", "pi-emote", "emotes", setName);
+  if (existsSync(projectDir)) return projectDir;
+
+  const userDir = join(homeDir, ".pi", "agent", "extensions", "pi-emote", "emotes", setName);
+  if (existsSync(userDir)) return userDir;
+
+  const extSetDir = join(extDir, "emotes", setName);
+  if (existsSync(extSetDir)) return extSetDir;
+
+  // Fallback to default
+  const defaultDir = join(extDir, "emotes", "default");
+  if (existsSync(defaultDir)) return defaultDir;
+
+  return join(extDir, "emotes", "default");
+}
+
+function loadEmotesConfig(emoteSetDir: string): EmotesConfig {
+  const configPath = join(emoteSetDir, "emotes.json");
+  if (existsSync(configPath)) {
+    try {
+      return JSON.parse(readFileSync(configPath, "utf-8"));
+    } catch {
+      return {};
+    }
   }
   return {};
 }
 
-function discoverFrames(extDir: string): Map<string, FrameSet> {
-  const emotesDir = join(extDir, "emotes");
+function discoverFrames(emoteSetDir: string): Map<string, FrameSet> {
   const frameMap = new Map<string, FrameSet>();
   const states: EmoteState[] = ["hi", "idle", "think", "talk", "read", "write", "tool", "success", "failure", "compact"];
 
   for (const state of states) {
-    const stateDir = join(emotesDir, state);
+    const stateDir = join(emoteSetDir, state);
     if (!existsSync(stateDir)) continue;
 
     const files = readdirSync(stateDir).filter((f) => f.endsWith(".png")).sort();
@@ -79,6 +196,8 @@ function discoverFrames(extDir: string): Map<string, FrameSet> {
 
   return frameMap;
 }
+
+// --- Helpers ---
 
 function randomPick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
@@ -104,12 +223,28 @@ function randomInRange(min: number, max: number): number {
 export default function (pi: ExtensionAPI) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const extDir = dirname(__dirname);
-  const config = loadConfig(extDir);
+
+  // Initial config load (cwd may change, but config is loaded once at startup)
+  let cwd = process.cwd();
+  let config = loadLayeredConfig(extDir, cwd);
+  debugEnabled = config.debug;
 
   if (!config.enabled) return;
 
-  const emotesConfig = loadEmotesConfig(extDir);
-  const frameMap = discoverFrames(extDir);
+  // Emote set state (can change on model switch)
+  let currentEmoteSet = "default";
+  let emotesConfig: EmotesConfig = {};
+  let frameMap: Map<string, FrameSet> = new Map();
+
+  function loadEmoteSet(setName: string) {
+    const setDir = findEmoteSetDir(setName, extDir, cwd);
+    currentEmoteSet = setName;
+    emotesConfig = loadEmotesConfig(setDir);
+    frameMap = discoverFrames(setDir);
+  }
+
+  // Load default emote set initially
+  loadEmoteSet("default");
 
   // Rendering state
   let tuiRef: TUI | null = null;
@@ -118,7 +253,7 @@ export default function (pi: ExtensionAPI) {
   let pendingTransmit: string | null = null;
   let replotSequence: string | null = null;
   let lastShownBase64: string | null = null;
-  let ctxRef: any = null; // captured ExtensionContext for stats access
+  let ctxRef: any = null;
   const emoteImageId = allocateImageId();
 
   // State machine
@@ -134,7 +269,7 @@ export default function (pi: ExtensionAPI) {
   let thinkTimer: ReturnType<typeof setTimeout> | null = null;
   let thinkBaseFrame: string | null = null;
 
-  // Hold state: what to transition to after hold expires
+  // Hold state
   let holdNextState: EmoteState = "idle";
 
   // Talk state
@@ -148,7 +283,6 @@ export default function (pi: ExtensionAPI) {
   // --- Core rendering ---
 
   function showImage(base64: string, force = false) {
-    // Skip if same image already shown (avoid unnecessary re-renders)
     if (!force && base64 === lastShownBase64) return;
     lastShownBase64 = base64;
 
@@ -161,19 +295,13 @@ export default function (pi: ExtensionAPI) {
       imageId: emoteImageId,
     });
 
+    log(`showImage: result=${result !== null && result !== undefined}, tuiRef=${tuiRef !== null}, dims=${dimensions.widthPx}x${dimensions.heightPx}`);
+
     if (result) {
-      // Transmit-only: change a=T (transmit+display) to a=t (transmit, no display).
-      // Re-transmitting with the same ID deletes old data + placements (per Kitty spec).
-      // The placement command below immediately re-creates the placement in the same render.
       const transmitSeq = result.sequence.replace("a=T", "a=t");
-      // Lightweight placement command with fixed placement ID.
-      // Kitty replaces existing placement p=1, so no delete needed.
-      // C=1 prevents cursor movement after placement (avoids scrolling at bottom of screen).
       const placeSeq = `\x1b_Ga=p,i=${emoteImageId},p=1,c=${config.size},r=${result.rows},C=1,q=2\x1b\\`;
 
-      // One-shot: upload new data (emitted once per frame change)
       pendingTransmit = transmitSeq;
-      // Reusable: lightweight re-place at current widget position (emitted every render)
       replotSequence = placeSeq;
       imageRows = result.rows;
     } else {
@@ -348,7 +476,6 @@ export default function (pi: ExtensionAPI) {
 
     showImage(hardFrame, true);
 
-    // Hold hard-think briefly, then return to default
     setTimeout(() => {
       if (currentState !== "think") return;
       if (thinkBaseFrame) showImage(thinkBaseFrame, true);
@@ -388,14 +515,12 @@ export default function (pi: ExtensionAPI) {
       talkMouthClosed = false;
     }
 
-    // Reset gap timer
     if (talkGapTimer) { clearTimeout(talkGapTimer); talkGapTimer = null; }
     talkGapTimer = setTimeout(() => {
       if (currentState !== "talk") return;
       talkMouthClosed = true;
     }, 200);
 
-    // Recalculate duration
     recalculateTalkDuration();
   }
 
@@ -412,7 +537,6 @@ export default function (pi: ExtensionAPI) {
       if (timeSinceLastToken > 200) {
         transitionTo("idle");
       } else {
-        // Tokens still flowing, re-check in 200ms
         talkDurationTimer = setTimeout(() => {
           if (currentState === "talk") transitionTo("idle");
         }, 200);
@@ -427,7 +551,6 @@ export default function (pi: ExtensionAPI) {
     if (elapsed >= targetDurationMs) {
       transitionTo("idle");
     }
-    // Otherwise talkDurationTimer will handle it
   }
 
   function enterCycle(state: EmoteState) {
@@ -486,7 +609,6 @@ export default function (pi: ExtensionAPI) {
     const lines: string[] = [];
     if (!ctxRef) return lines;
 
-    // Model name + thinking level
     const model = ctxRef.model;
     let modelStr = model?.name ?? "no model";
     const thinkingLevel = pi.getThinkingLevel?.() ?? "high";
@@ -495,7 +617,6 @@ export default function (pi: ExtensionAPI) {
     }
     lines.push(theme.bold(modelStr));
 
-    // Context usage
     const usage = ctxRef.getContextUsage?.();
     if (usage) {
       const pct = usage.percent !== null ? `${usage.percent.toFixed(1)}%` : "?";
@@ -504,7 +625,6 @@ export default function (pi: ExtensionAPI) {
       lines.push(`Context: ${tokens}/${window} (${pct})`);
     }
 
-    // Token stats from session entries
     let totalInput = 0;
     let totalOutput = 0;
     let totalCost = 0;
@@ -524,55 +644,91 @@ export default function (pi: ExtensionAPI) {
 
     lines.push(`$${totalCost.toFixed(3)}`);
 
-    // Truncate lines to fit available width
-    const infoWidth = width - config.size - 5; // 5 = " " (left pad) + " │ " (separator)
+    const infoWidth = width - config.size - 5;
     return lines.map(l => {
       if (visibleWidth(l) > infoWidth) return truncateToWidth(l, infoWidth, "…");
       return l;
     });
   }
 
+  // --- Model-based emote set switching ---
+
+  function switchEmoteSetForModel(modelId: string) {
+    const setName = resolveEmoteSet(modelId, config.emotes);
+    if (setName !== currentEmoteSet) {
+      loadEmoteSet(setName);
+      log(`switchEmoteSet: loaded "${setName}", frames=[${[...frameMap.keys()].join(", ")}], state="${currentState}"`);
+      // Re-render current state with new frames
+      lastShownBase64 = null;
+      if (widgetActive && currentState === "idle") {
+        const defaultFile = emotesConfig.idle?.default ?? "idle.png";
+        const frame = getFrame("idle", defaultFile);
+        log(`switchEmoteSet: idle frame "${defaultFile}" found=${frame !== null}`);
+        enterIdle();
+      } else if (widgetActive) {
+        const frame = getRandomFrame(currentState);
+        log(`switchEmoteSet: ${currentState} frame found=${frame !== null}`);
+        if (frame) showImage(frame, true);
+      }
+    }
+  }
+
   // --- Events ---
 
   pi.on("session_start", async (_event, ctx) => {
+    log(`session_start: hasUI=${ctx.hasUI}`);
     if (!ctx.hasUI) return;
 
-    // Check if terminal supports images
     const caps = getCapabilities();
-    if (!caps.images) return;
+    if (!caps.images) {
+      log(`no image support`);
+      return;
+    }
 
     clearAllTimers();
+    cwd = ctx.cwd;
+    config = loadLayeredConfig(extDir, cwd);
+    debugEnabled = config.debug;
     ctxRef = ctx;
 
-    // Create widget above the editor (JRPG-style portrait beside stats panel)
+    if (!config.enabled) return;
+
+    // Resolve emote set for current model
+    const modelId = ctx.model?.id ?? "";
+    const setName = resolveEmoteSet(modelId, config.emotes);
+    log(`session_start: model="${modelId}" set="${setName}" dir="${findEmoteSetDir(setName, extDir, cwd)}"`);
+    loadEmoteSet(setName);
+    log(`frames loaded: [${[...frameMap.keys()].join(", ")}]`);
+
+    // Create widget
     ctx.ui.setWidget("emote", (tui, theme) => {
       tuiRef = tui;
       return {
         render(width: number): string[] {
-          // Hide when terminal is too narrow
           if (width < config.hideBelow) return [];
-          if (imageRows === 0) return [];
+          if (imageRows === 0) {
+            log(`render: imageRows=0, returning empty`);
+            return [];
+          }
 
-          // Use the same border color as the prompt bar (thinking-level aware)
+          log(`render: imageRows=${imageRows}, pendingTransmit=${pendingTransmit !== null}, replotSequence=${replotSequence !== null}, set="${currentEmoteSet}"`);
+
           const thinkingLevel = pi.getThinkingLevel?.() ?? "high";
           const borderColor = (theme as any).getThinkingBorderColor?.(thinkingLevel)
             ?? ((s: string) => theme.fg("border", s));
           const border = borderColor("─".repeat(width));
           const sep = borderColor("│");
-          const leftMargin = " "; // left padding for image
-          const avatarPad = " ".repeat(config.size); // image area placeholder
+          const leftMargin = " ";
+          const avatarPad = " ".repeat(config.size);
           const infoLines = buildInfoLines(width, theme);
 
           const lines: string[] = [];
 
-          // Top border
           lines.push(border);
 
-          // Image rows with info panel
           for (let i = 0; i < imageRows; i++) {
             let line = "";
             if (i === 0) {
-              // First row: left margin + Kitty placement (image starts at col 1)
               line = leftMargin;
               if (pendingTransmit) {
                 line += pendingTransmit + (replotSequence ?? "");
@@ -582,13 +738,10 @@ export default function (pi: ExtensionAPI) {
               }
               line += `${avatarPad} ${sep} ${infoLines[i] ?? ""}`;
             } else {
-              // Subsequent rows: left margin + avatar space + separator + info
               line = `${leftMargin}${avatarPad} ${sep} ${infoLines[i] ?? ""}`;
             }
             lines.push(line);
           }
-
-          // No bottom border — the editor's own top border serves as separator
 
           return lines;
         },
@@ -602,13 +755,11 @@ export default function (pi: ExtensionAPI) {
 
     widgetActive = true;
 
-    // Let widget initialize, then show hi
     setTimeout(() => transitionTo("hi"), 500);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
     clearAllTimers();
-    // Clean up Kitty image data from terminal
     process.stdout.write(deleteKittyImage(emoteImageId));
     if (widgetActive && ctx.hasUI) {
       ctx.ui.setWidget("emote", undefined);
@@ -620,20 +771,25 @@ export default function (pi: ExtensionAPI) {
     replotSequence = null;
   });
 
+  pi.on("model_select", async (event, _ctx) => {
+    if (!widgetActive) return;
+    const modelId = event.model?.id ?? "";
+    const resolved = resolveEmoteSet(modelId, config.emotes);
+    log(`model_select: model="${modelId}" resolved="${resolved}" current="${currentEmoteSet}"`);
+    switchEmoteSetForModel(modelId);
+  });
+
   pi.on("turn_start", async () => {
     // Don't transition to think here — wait for actual thinking tokens.
-    // Keep showing the current state (last action / idle).
   });
 
   pi.on("message_update", async (event) => {
     if (!widgetActive) return;
     if (event.message?.role !== "assistant") return;
 
-    // Extract text delta from streaming event
     const streamEvent = event.assistantMessageEvent;
     if (!streamEvent) return;
 
-    // Transition to think when actual thinking tokens arrive
     if (streamEvent.type === "thinking_start" || streamEvent.type === "thinking_delta") {
       if (currentState !== "think") {
         transitionTo("think");
@@ -641,7 +797,6 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    // Transition to tool emote when tool call arguments are being streamed
     if (streamEvent.type === "toolcall_start") {
       const partial = streamEvent.partial;
       const block = partial?.content?.[streamEvent.contentIndex];
@@ -682,11 +837,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_execution_end", async (event) => {
     if (!widgetActive) return;
     if (event.toolName === "bash" && event.isError) {
-      // Show failure briefly, then transition to reading the output
       holdNextState = "read";
       transitionTo("failure");
     } else {
-      // Agent is now reading the tool output
       transitionTo("read");
     }
   });
