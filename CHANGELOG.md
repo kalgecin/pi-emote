@@ -2,6 +2,16 @@
 
 All notable changes to pi-emote will be documented in this file.
 
+## v0.2.3
+
+### Added
+- **Configurable terminal renderer whitelist** — override image protocol per terminal via `terminals` config array.
+- **Community emote sets** — `aza_choi` and `aza_choi_nobg` by [@shennguyenrs](https://github.com/shennguyenrs) (#3).
+- **Gallery section** in README showcasing available emote sets.
+
+### Fixed
+- **Config merge semantics** — emote entries now correctly append across config layers; terminal entries merge by `match` key.
+
 ## v0.2.2
 
 ### Fixed
