@@ -60,23 +60,9 @@ Only include what you want to change:
 
 See `config.json` in the extension root for all defaults.
 
-### Terminal renderer overrides
-
-Image protocol auto-detection doesn't always get it right (especially in multiplexers). Override per terminal:
-
-```json
-{
-  "terminals": [
-    { "match": "tmux", "render": "kitty" }
-  ]
-}
-```
-
-Render values: `"kitty"`, `"iterm2"`, `"ascii"`, `"auto"`. Only include terminals you want to override — the rest keep their defaults. See `AGENTS.md` for the full list of detected terminal names.
-
 ## Multiplexers
 
-pi-emote can render image avatars through **tmux** using DCS passthrough. When tmux is detected, pi-emote auto-detects the outer terminal and picks the right image protocol.
+pi-emote can render image avatars through **tmux** using DCS passthrough. When tmux is detected, pi-emote auto-detects the outer terminal and picks the right image protocol. **These features are experimental and opt-in.**
 
 ### tmux Setup
 
@@ -102,16 +88,28 @@ tmux kill-server && tmux
 
 Without `allow-passthrough`, pi-emote defaults to ASCII and shows a one-time warning with setup instructions.
 
-### Supported Outer Terminals
+### Experimental Multiplexer Support
 
 | Outer Terminal | Protocol | Status |
 |----------------|----------|--------|
-| Ghostty | Kitty | ⚠️ Works, slight flicker during frame changes |
-| kitty | Kitty | ⚠️ Works, slight flicker during frame changes |
-| iTerm2 | iTerm2 | ⚠️ Works, some rendering artifacts (occasional flicker on row 0 during rapid state changes) |
-| WezTerm | iTerm2 | Not verified yet |
+| Ghostty | kitty-unicode | ⚠️ Experimental, pane-safe, auto-detected |
+| kitty | kitty-unicode | ⚠️ Experimental, pane-safe, auto-detected |
+| iTerm2 | iterm2 | ⚠️ Experimental, opt-in only (pane bleed in multi-pane layouts) |
+| WezTerm | iterm2 | ⚠️ Experimental, opt-in only (not verified) |
 
 The outer terminal is detected via `tmux show-environment TERM_PROGRAM`, which reflects the currently attached terminal.
+
+Ghostty and kitty use the **kitty-unicode** renderer (Unicode placeholders) which is pane-safe — images stay within their pane and clean up on session switch. This is the default when auto-detected.
+
+iTerm2 and WezTerm use DCS passthrough for the iTerm2 image protocol. This works but has known limitations: images can bleed into adjacent panes and persist when switching sessions. **Not enabled by default** — opt in explicitly:
+
+```json
+{
+  "terminals": [
+    { "match": "tmux", "render": "iterm2" }
+  ]
+}
+```
 
 ### Other Multiplexers
 
@@ -119,17 +117,23 @@ The outer terminal is detected via `tmux show-environment TERM_PROGRAM`, which r
 
 ### Manual Override
 
-If auto-detection doesn't work for your setup, force a specific renderer:
+Force a specific renderer:
 
 ```json
 {
   "terminals": [
-    { "match": "tmux", "render": "kitty" }
+    { "match": "tmux", "render": "kitty-unicode" }
   ]
 }
 ```
 
-This skips all auto-detection and passthrough checks — make sure your tmux is configured correctly.
+Available render values for tmux: `"auto"`, `"kitty-unicode"`, `"kitty"`, `"iterm2"`, `"ascii"`.
+
+- `"auto"` — detect outer terminal; uses kitty-unicode for Ghostty/kitty, ASCII for others
+- `"kitty-unicode"` — pane-safe Unicode placeholders (Ghostty, kitty)
+- `"kitty"` — classic DCS passthrough (single-pane only, experimental)
+- `"iterm2"` — iTerm2 DCS passthrough (single-pane only, experimental)
+- `"ascii"` — text fallback (default)
 
 ## Custom Emotes
 

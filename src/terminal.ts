@@ -129,10 +129,18 @@ function resolveTmux(
     };
   }
 
-  // Use kitty-unicode for kitty protocol through tmux (pane-safe),
-  // iterm2 passthrough stays as-is (no unicode placeholder equivalent)
-  const protocol = outer === "kitty" ? "kitty-unicode" : outer;
-  return { ...base, protocol, warning: null };
+  // Use kitty-unicode for kitty protocol through tmux (pane-safe).
+  // iTerm2 has no pane-safe equivalent — default to ascii.
+  if (outer === "kitty") {
+    return { ...base, protocol: "kitty-unicode", warning: null };
+  }
+
+  return {
+    ...base,
+    protocol: "ascii",
+    warning:
+      `[pi-emote] tmux + ${outer} detected. No pane-safe image renderer available. Defaulting to ASCII. Set render to \"iterm2\" to opt in (experimental).`,
+  };
 }
 
 /**

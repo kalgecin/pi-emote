@@ -121,30 +121,31 @@ The `terminals` array maps detected terminal/multiplexer names to specific image
 
 ### Render Values
 
-- `"kitty"` — Kitty graphics protocol
-- `"iterm2"` — iTerm2 inline image protocol
+- `"kitty"` — Kitty graphics protocol (direct passthrough, experimental in tmux)
+- `"kitty-unicode"` — Kitty Unicode placeholders (pane-safe, experimental in tmux)
+- `"iterm2"` — iTerm2 inline image protocol (experimental in tmux)
 - `"ascii"` — Text-only fallback
-- `"auto"` — Auto-detect (default for multiplexers): checks passthrough support and detects outer terminal
+- `"auto"` — Auto-detect: checks passthrough support and detects outer terminal
 
 ### Shipped Defaults
 
 ```json
 {
   "terminals": [
-    { "match": "zellij", "render": "auto" },
-    { "match": "tmux", "render": "auto" },
-    { "match": "screen", "render": "auto" },
+    { "match": "zellij", "render": "ascii" },
+    { "match": "tmux", "render": "ascii" },
+    { "match": "screen", "render": "ascii" },
     { "match": "wezterm", "render": "iterm2" },
     { "match": "ghostty", "render": "kitty" }
   ]
 }
 ```
 
-Multiplexers default to `"auto"`, which checks for passthrough support and detects the outer terminal. If passthrough is not available, falls back to ASCII with a helpful warning. WezTerm uses iTerm2 protocol (more reliable than Kitty on WezTerm). Terminals not listed (e.g., kitty, iterm2) fall through to pi-tui auto-detection.
+Multiplexers default to `"ascii"`. Users can opt in to experimental tmux image rendering by setting `"auto"` or a concrete renderer in their config. WezTerm uses iTerm2 protocol (more reliable than Kitty on WezTerm). Terminals not listed (e.g., kitty, iterm2) fall through to pi-tui auto-detection.
 
 ### tmux Requirements
 
-For image rendering through tmux, users need these settings in `tmux.conf`:
+For image rendering through tmux (experimental), users need these settings in `tmux.conf`:
 
 ```bash
 # Required — allow image sequences to pass through to the outer terminal
@@ -160,27 +161,37 @@ set -sg escape-time 0
 
 After changes, tmux must be fully restarted (`tmux kill-server && tmux`).
 
-The auto-detection flow for tmux:
+The auto-detection flow for tmux (when render is `"auto"`):
 1. Check `allow-passthrough` is `on` or `all` via `tmux show-options -g`
 2. Detect outer terminal via `tmux show-environment TERM_PROGRAM` (session-level, falls back to global)
-3. Map outer terminal to protocol: ghostty/kitty → kitty, iTerm.app → iterm2, WezTerm → iterm2
-4. Use `TmuxKittyRenderer` or `TmuxITermRenderer` (DCS passthrough wrappers)
+3. Map outer terminal to protocol: ghostty/kitty → kitty-unicode (pane-safe), iTerm.app/WezTerm → ascii (no pane-safe renderer available)
+4. Use `TmuxKittyUnicodeRenderer` for Ghostty/kitty; all others fall back to ASCII
 
-If the user explicitly configures a concrete render value (`"kitty"`, `"iterm2"`, `"ascii"`) for tmux, all auto-detection and warnings are skipped.
+If the user explicitly configures a concrete render value (`"kitty"`, `"kitty-unicode"`, `"iterm2"`, `"ascii"`) for tmux, all auto-detection and warnings are skipped.
 
 ### Override Example
 
-If you have Kitty image passthrough working in tmux:
+To opt in to tmux image rendering:
 
 ```json
 {
   "terminals": [
-    { "match": "tmux", "render": "kitty" }
+    { "match": "tmux", "render": "auto" }
   ]
 }
 ```
 
-Setting a concrete value (`"kitty"`, `"iterm2"`, `"ascii"`) skips auto-detection and suppresses warnings. Use `"auto"` to explicitly opt into auto-detection.
+Or force a specific renderer:
+
+```json
+{
+  "terminals": [
+    { "match": "tmux", "render": "kitty-unicode" }
+  ]
+}
+```
+
+Setting a concrete value skips auto-detection and suppresses warnings. Use `"auto"` to explicitly opt into auto-detection.
 
 The `terminals` array uses **merge-by-key** semantics: entries are merged by `match` key across all config layers (extension → user → project). Higher-priority layers replace entries with the same key, or append new ones. You only need to include the entries you want to override or add.
 
