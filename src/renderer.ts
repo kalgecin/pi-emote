@@ -11,7 +11,8 @@ import type { TUI } from "@earendil-works/pi-tui";
  */
 export type RenderedFrame =
   | { kind: "image"; sequence: string; rows: number; cursorAdvances: boolean; padMode?: "spaces" | "skip" }
-  | { kind: "text"; lines: string[] };
+  | { kind: "text"; lines: string[] }
+  | { kind: "placeholder"; lines: string[]; rows: number };
 
 /**
  * Renderer interface — abstracts how emote frames are loaded, stored, and displayed.

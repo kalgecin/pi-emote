@@ -144,6 +144,22 @@ function renderTextFrame(frame: RenderedFrame & { kind: "text" }, width: number,
   return lines;
 }
 
+/**
+ * Unicode placeholder layout: placeholder text lines fill rows 0–N.
+ * Each line is already config.size wide (placeholder chars). Info beside it.
+ */
+function renderPlaceholderFrame(frame: RenderedFrame & { kind: "placeholder" }, width: number, config: Config, infoLines: string[], borderColor: (s: string) => string): string[] {
+  const sep = borderColor("│");
+  const leftMargin = " ";
+  const lines: string[] = [];
+
+  for (let i = 0; i < frame.rows; i++) {
+    lines.push(`${leftMargin}${frame.lines[i] ?? ""} ${sep} ${infoLines[i] ?? ""}`);
+  }
+
+  return lines;
+}
+
 // --- Widget factory ---
 
 export interface WidgetDeps {
@@ -186,6 +202,8 @@ export function createWidgetFactory(deps: WidgetDeps) {
           } else {
             lines.push(...renderKittyFrame(frame, width, config, infoLines, borderColor));
           }
+        } else if (frame.kind === "placeholder") {
+          lines.push(...renderPlaceholderFrame(frame, width, config, infoLines, borderColor));
         } else {
           lines.push(...renderTextFrame(frame, width, config, infoLines, borderColor));
         }

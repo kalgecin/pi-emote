@@ -3,7 +3,7 @@ import type { TerminalMapping, ResolvedRenderer } from "./types.js";
 import { checkTmuxPassthrough, detectOuterTerminal } from "./tmux.js";
 import { log } from "./log.js";
 
-type Protocol = "kitty" | "iterm2" | "ascii";
+type Protocol = "kitty" | "kitty-unicode" | "iterm2" | "ascii";
 
 const MULTIPLEXERS = new Set(["tmux", "screen", "zellij"]);
 
@@ -129,7 +129,10 @@ function resolveTmux(
     };
   }
 
-  return { ...base, protocol: outer, warning: null };
+  // Use kitty-unicode for kitty protocol through tmux (pane-safe),
+  // iterm2 passthrough stays as-is (no unicode placeholder equivalent)
+  const protocol = outer === "kitty" ? "kitty-unicode" : outer;
+  return { ...base, protocol, warning: null };
 }
 
 /**

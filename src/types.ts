@@ -21,11 +21,11 @@ export interface EmoteMapping {
 
 export interface TerminalMapping {
   match: string;
-  render: "kitty" | "iterm2" | "ascii" | "auto";
+  render: "kitty" | "kitty-unicode" | "iterm2" | "ascii" | "auto";
 }
 
 export interface ResolvedRenderer {
-  protocol: "kitty" | "iterm2" | "ascii";
+  protocol: "kitty" | "kitty-unicode" | "iterm2" | "ascii";
   multiplexer: "tmux" | "screen" | "zellij" | null;
   warning: string | null;
   warningLevel: "warning" | "info";
