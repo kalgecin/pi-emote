@@ -74,18 +74,7 @@ export default function (pi: ExtensionAPI) {
   function loadEmoteSet(setName: string) {
     currentEmoteSet = setName;
 
-    // "ascii" emote set forces AsciiRenderer regardless of terminal
-    if (setName === "ascii") {
-      if (!(renderer instanceof AsciiRenderer)) {
-        renderer = new AsciiRenderer();
-        animator.setRenderer(renderer);
-      }
-      renderer.loadFrames("", extDir);
-      animator.setEmotesConfig({});
-      return;
-    }
-
-    // Non-ascii set: ensure we're using the capability-based renderer
+    // Ensure we're using the capability-based renderer
     const detected = createRendererFromResolved(lastResolved, config.size);
     if (renderer.constructor !== detected.constructor) {
       renderer = detected;

@@ -5,7 +5,7 @@ import type { EmoteState, EmotesConfig } from "./types.js";
 import type { Renderer, RenderedFrame } from "./renderer.js";
 import { log } from "./log.js";
 
-// --- Minimal YAML parser for fallback.yaml ---
+// --- Minimal YAML parser for ascii.yaml ---
 // Handles: scalars, one-level maps, and arrays of scalars. No YAML library needed.
 
 interface AsciiFrameMap {
@@ -87,7 +87,7 @@ function randomPick<T>(arr: T[]): T {
 
 /**
  * Text-based renderer for terminals without image protocol support.
- * Loads frames from emotes/ascii/fallback.yaml.
+ * Loads frames from ascii.yaml in the resolved emote set directory.
  */
 export class AsciiRenderer implements Renderer {
   private tuiRef: TUI | null = null;
@@ -99,13 +99,11 @@ export class AsciiRenderer implements Renderer {
     this.tuiRef = tui;
   }
 
-  loadFrames(_emoteSetDir: string, extDir: string) {
-    // Look for ascii/fallback.yaml in standard locations
-    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  loadFrames(emoteSetDir: string, extDir: string) {
+    // Look for ascii.yaml in the resolved emote set directory, fall back to shipped default
     const candidates = [
-      join(process.cwd(), ".pi", "extensions", "pi-emote", "emotes", "ascii", "fallback.yaml"),
-      join(homeDir, ".pi", "agent", "extensions", "pi-emote", "emotes", "ascii", "fallback.yaml"),
-      join(extDir, "emotes", "ascii", "fallback.yaml"),
+      ...(emoteSetDir ? [join(emoteSetDir, "ascii.yaml")] : []),
+      join(extDir, "emotes", "ascii", "ascii.yaml"),
     ];
 
     let yamlText: string | null = null;
@@ -118,7 +116,7 @@ export class AsciiRenderer implements Renderer {
     }
 
     if (!yamlText) {
-      log(`AsciiRenderer: no fallback.yaml found`);
+      log(`AsciiRenderer: no ascii.yaml found`);
       return;
     }
 
