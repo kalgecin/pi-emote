@@ -2,6 +2,11 @@
 
 All notable changes to pi-emote will be documented in this file.
 
+## v0.2.8
+
+### Fixed
+- **ASCII YAML escape sequences** — `\"` and `\\` in `ascii.yaml` double-quoted strings are now correctly decoded (e.g. `think hard` and `tool` frames in the default set).
+
 ## v0.2.7
 
 ### Added
