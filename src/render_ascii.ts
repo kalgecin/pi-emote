@@ -12,6 +12,19 @@ interface AsciiFrameMap {
   [state: string]: string | string[] | Record<string, string>;
 }
 
+function unquote(raw: string): string {
+  const s = raw.trim();
+  if (s.startsWith('"') && s.endsWith('"')) {
+    // Double-quoted: process escape sequences
+    return s.slice(1, -1).replace(/\\(["\\])/g, "$1");
+  }
+  if (s.startsWith("'") && s.endsWith("'")) {
+    // Single-quoted: no escape sequences in YAML single-quote ('' is the only escape)
+    return s.slice(1, -1).replace(/''/g, "'");
+  }
+  return s;
+}
+
 function parseSimpleYaml(text: string): AsciiFrameMap {
   const result: AsciiFrameMap = {};
   let currentKey: string | null = null;
@@ -35,7 +48,7 @@ function parseSimpleYaml(text: string): AsciiFrameMap {
       currentKey = topMatch[1];
       currentArr = null;
       currentObj = null;
-      const value = topMatch[2].replace(/^["']|["']$/g, "").trim();
+      const value = unquote(topMatch[2]);
       if (value) {
         // Inline scalar
         result[currentKey] = value;
@@ -50,7 +63,7 @@ function parseSimpleYaml(text: string): AsciiFrameMap {
     const arrMatch = line.match(/^\s+-\s+(.+)/);
     if (arrMatch) {
       if (!currentArr) currentArr = [];
-      currentArr.push(arrMatch[1].replace(/^["']|["']$/g, "").trim());
+      currentArr.push(unquote(arrMatch[1]));
       continue;
     }
 
@@ -58,7 +71,7 @@ function parseSimpleYaml(text: string): AsciiFrameMap {
     const nestedMatch = line.match(/^\s+(\w[\w-]*):\s+(.+)/);
     if (nestedMatch) {
       if (!currentObj) currentObj = {};
-      currentObj[nestedMatch[1]] = nestedMatch[2].replace(/^["']|["']$/g, "").trim();
+      currentObj[nestedMatch[1]] = unquote(nestedMatch[2]);
       continue;
     }
   }
