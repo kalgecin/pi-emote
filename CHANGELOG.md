@@ -2,6 +2,15 @@
 
 All notable changes to pi-emote will be documented in this file.
 
+## v0.2.9
+
+### Added
+- **Red emote**
+
+### Changed
+- **hideBelow default to 40** — Fit all content in narrow terminals by default.
+- **claude emote** — Claude family of models show red emote by default.
+
 ## v0.2.8
 
 ### Fixed

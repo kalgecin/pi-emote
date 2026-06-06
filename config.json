@@ -3,7 +3,7 @@
   "debug": false,
   "size": 8,
   "readingSpeed": 4,
-  "hideBelow": 80,
+  "hideBelow": 40,
   "holdDuration": {
     "hi": 2000,
     "success": 1200,
@@ -13,7 +13,8 @@
   "talkTickMs": 120,
   "cycleMs": 500,
   "emotes": [
-    { "model": "*", "emote-set": "default" }
+    { "model": "*", "emote-set": "default" },
+    { "model": "*claude*", "emote-set": "red" }
   ],
   "terminals": [
     { "match": "zellij", "render": "ascii" },
