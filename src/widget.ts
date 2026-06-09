@@ -8,8 +8,8 @@ import { log } from "./log.js";
 
 function formatTokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 10_000) return `${Math.round(count / 1000)}k`;
-  if (count >= 1_000) return `${(count / 1000).toFixed(1)}k`;
+  if (count >= 10_000) return `${Math.round(count / 1000)}K`;
+  if (count >= 1_000) return `${(count / 1000).toFixed(1)}K`;
   return count.toString();
 }
 
@@ -17,20 +17,37 @@ function formatTokens(count: number): string {
 
 function buildProgressBar(usage: any, latestCacheRead: number, latestInput: number, latestCacheWrite: number): string {
   const segments = 20;
+  const subsPerSegment = 8;
+  const totalSubs = segments * subsPerSegment;
   const percent = usage?.percent ?? 0;
-  const filledSegments = percent === 0 ? 0 : Math.ceil((percent / 100) * segments);
+  
+  // Granular sub-unit fill with floor-fill minimum of one full segment
+  const filledSubs = percent === 0 ? 0 : Math.max(Math.ceil((percent / 100) * totalSubs), subsPerSegment);
   
   // Calculate cache vs input ratio from latest message
   const totalPrompt = latestInput + latestCacheRead + latestCacheWrite;
   const cacheRatio = totalPrompt > 0 ? latestCacheRead / totalPrompt : 0;
-  const cacheSegments = Math.floor(filledSegments * cacheRatio);
-  const inputSegments = filledSegments - cacheSegments;
-  const emptySegments = segments - filledSegments;
+  const cacheSubs = Math.floor(filledSubs * cacheRatio);
   
-  const bar = '░'.repeat(cacheSegments) + '█'.repeat(inputSegments) + '-'.repeat(emptySegments);
+  const eighthBlockChars = ['▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'];
+  
+  const bar = Array.from({ length: segments }, (_, i) => {
+    const segStart = i * subsPerSegment;
+    const segEnd = segStart + subsPerSegment;
+    
+    const cacheInSeg = Math.max(0, Math.min(cacheSubs, segEnd) - segStart);
+    const inputInSeg = Math.max(0, Math.min(filledSubs, segEnd) - Math.max(cacheSubs, segStart));
+    
+    // If cache and input share a bin, input fills the bin at 100%
+    if (cacheInSeg > 0 && inputInSeg > 0) return '█';
+    if (inputInSeg > 0) return eighthBlockChars[inputInSeg - 1];
+    if (cacheInSeg > 0) return '░';
+    return ' ';
+  }).join('');
+  
   const pctStr = percent.toFixed(1);
-  
-  return `${bar}| ${pctStr}%`;
+  const tokensStr = usage?.tokens != null ? formatTokens(usage.tokens) : '?';
+  return `⏵▕${bar}▏ ${tokensStr} (${pctStr}%)`;
 }
 
 // --- Info panel ---
@@ -90,7 +107,7 @@ function buildInfoLines(width: number, config: Config, ctxRef: any, pi: any, the
   const latestPromptTokens = latestInput + latestCacheRead + latestCacheWrite;
   const cacheHitRate = latestPromptTokens > 0 ? (latestCacheRead / latestPromptTokens) * 100 : 0;
   
-  lines.push(`↑${formatTokens(totalInput)} ↓${formatTokens(totalOutput)} ⇡${cacheHitRate.toFixed(1)}% $${totalCost.toFixed(3)}`);
+  lines.push(`↑${formatTokens(totalInput)} ↓${formatTokens(totalOutput)} ⇞${cacheHitRate.toFixed(1)}% $${totalCost.toFixed(3)}`);
 
   // Line 4: Current working directory
   let pwd = ctxRef.sessionManager.getCwd?.() ?? process.cwd();
