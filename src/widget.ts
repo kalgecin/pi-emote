@@ -52,7 +52,7 @@ function buildProgressBar(usage: any, latestCacheRead: number, latestInput: numb
 
 // --- Info panel ---
 
-function buildInfoLines(width: number, config: Config, ctxRef: any, pi: any, theme: any): string[] {
+function buildInfoLines(width: number, avatarWidth: number, ctxRef: any, pi: any, theme: any): string[] {
   const lines: string[] = [];
   if (!ctxRef) return lines;
 
@@ -117,7 +117,7 @@ function buildInfoLines(width: number, config: Config, ctxRef: any, pi: any, the
   }
   lines.push(pwd);
 
-  const infoWidth = width - config.size - 5;
+  const infoWidth = width - avatarWidth - 5;
   return lines.map(l => {
     if (visibleWidth(l) > infoWidth) return truncateToWidth(l, infoWidth, "…");
     return l;
@@ -182,24 +182,30 @@ function renderITermFrame(frame: RenderedFrame & { kind: "image" }, width: numbe
   return lines;
 }
 
-function renderTextFrame(frame: RenderedFrame & { kind: "text" }, width: number, config: Config, infoLines: string[], borderColor: (s: string) => string): string[] {
+const TEXT_CANVAS_COLS = 8;
+const TEXT_CANVAS_ROWS = 4;
+
+function renderTextFrame(frame: RenderedFrame & { kind: "text" }, width: number, _config: Config, infoLines: string[], borderColor: (s: string) => string): string[] {
   const sep = borderColor("│");
   const leftMargin = " ";
-  const avatarPad = " ".repeat(config.size);
+  const avatarPad = " ".repeat(TEXT_CANVAS_COLS);
 
-  // Place emote text on the 3rd row (index 2), vertically centered in a
-  // block tall enough to hold the info panel (min 4 rows to match image size).
+  // Fixed 8×4 canvas, vertically center the frame lines.
   const emoteLines = frame.lines;
-  const emoteRow = 2;
-  const rowCount = Math.max(emoteRow + emoteLines.length, infoLines.length, 4);
+  const rowCount = Math.max(TEXT_CANVAS_ROWS, infoLines.length);
+  const emoteStart = Math.floor((rowCount - emoteLines.length) / 2);
   const lines: string[] = [];
 
   for (let i = 0; i < rowCount; i++) {
-    const emoteIdx = i - emoteRow;
+    const emoteIdx = i - emoteStart;
     const emote = (emoteIdx >= 0 && emoteIdx < emoteLines.length) ? emoteLines[emoteIdx] : "";
     const emoteWidth = visibleWidth(emote);
-    // Center the emote within config.size columns
-    const totalPad = config.size - emoteWidth;
+    // Warn if a line exceeds the canvas width
+    if (emoteWidth > TEXT_CANVAS_COLS) {
+      log(`AsciiRenderer: line ${emoteIdx} exceeds ${TEXT_CANVAS_COLS} cols (${emoteWidth})`);
+    }
+    // Center within canvas
+    const totalPad = TEXT_CANVAS_COLS - emoteWidth;
     const padLeft = totalPad > 0 ? " ".repeat(Math.floor(totalPad / 2)) : "";
     const padRight = totalPad > 0 ? " ".repeat(Math.ceil(totalPad / 2)) : "";
     const cell = emote ? `${padLeft}${emote}${padRight}` : avatarPad;
@@ -256,7 +262,8 @@ export function createWidgetFactory(deps: WidgetDeps) {
         const borderColor = (theme as any).getThinkingBorderColor?.(thinkingLevel)
           ?? ((s: string) => theme.fg("border", s));
         const border = borderColor("─".repeat(width));
-        const infoLines = buildInfoLines(width, config, deps.getCtxRef(), deps.pi, theme);
+        const avatarWidth = frame.kind === "text" ? TEXT_CANVAS_COLS : config.size;
+        const infoLines = buildInfoLines(width, avatarWidth, deps.getCtxRef(), deps.pi, theme);
 
         const lines: string[] = [];
         lines.push(border);
