@@ -27,7 +27,7 @@ Community-contributed emote sets. [Submit yours via PR!](#custom-emotes)
 |--------|------|-------------|
 | `(^ ◡ ^)/` | `ascii` | [@cgxeiji](https://github.com/cgxeiji) |
 | `ʕ•̫͡•ʔ` | `ascii-bear` | [@LCorleone](https://github.com/LCorleone) |
-| <pre>.------.<br>\| ^o^ \|<br>'--++--'<br>===++===</pre> | `ascii-bot` | [@cgxeiji](https://github.com/cgxeiji) |
+| <pre>.------.<br>\|  ^o^ \|<br>'--++--'<br>===++===</pre> | `ascii-bot` | [@cgxeiji](https://github.com/cgxeiji) |
 
 ## Install
 
