@@ -28,6 +28,7 @@ export function detectTerminalName(): string {
   if (process.env.ITERM_SESSION_ID || termProgram === "iterm.app") return "iterm2";
   if (termProgram === "vscode") return "vscode";
   if (termProgram === "alacritty") return "alacritty";
+  if (termProgram === "warpterminal") return "warpterminal";
 
   return "unknown";
 }

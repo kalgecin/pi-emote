@@ -52,6 +52,7 @@ const DEFAULTS: Config = {
     { match: "screen", render: "ascii" },
     { match: "wezterm", render: "iterm2" },
     { match: "ghostty", render: "kitty" },
+    { match: "warpterminal", render: "kitty" },
   ],
 };
 

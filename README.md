@@ -104,6 +104,7 @@ Without `allow-passthrough`, pi-emote defaults to ASCII and shows a one-time war
 |----------------|----------|--------|
 | Ghostty | kitty-unicode | ✅ Stable, pane-safe, auto-detected |
 | kitty | kitty-unicode | ⚠️ Untested, pane-safe, auto-detected |
+| WarpTerminal | kitty-unicode | ⚠️ Untested, pane-safe, auto-detected |
 | iTerm2 | iterm2 | ⚠️ Experimental, opt-in only (pane bleed in multi-pane layouts) |
 | WezTerm | iterm2 | ⚠️ Experimental, opt-in only (not verified) |
 
